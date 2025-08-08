@@ -1,7 +1,7 @@
 #include "headers.h"
 
+#include <cassert>
 #include <ranges>
-#include <string>
 #include <string_view>
 
 using namespace std::string_view_literals;
@@ -20,18 +20,14 @@ void iterHeaders(std::string_view req, Callback &&callback) {
         throw std::runtime_error("Invalid HTTP request: missing request line");
     }
 
-    // Получаем только заголовки, пропуская request line
-    std::string_view headers = req.substr(first_empty_line + 2, end_headers - (first_empty_line + 2));
-    size_t start = 0;
-    while (start < headers.size()) {
-        size_t end = headers.find("\r\n", start);
-        if (end == std::string::npos)
-            end = headers.length();
-        const std::string_view line = headers.substr(start, end - start);
-        start = end + 2;
-        if (line.empty())
-            continue;
+    auto lines = req | std::views::split('\r') |
+                 std::views::transform([](auto &&part) { return part | std::views::split('\n'); }) | std::views::join |
+                 std::views::filter([](auto &&line) { return !line.empty(); }) | std::views::drop(1);
 
+    for (auto &&line_view : lines) {
+        std::string_view line = std::string_view(line_view.begin(), line_view.size());
+
+        assert(!line.empty());
         const size_t colon = line.find(':');
         if (colon == std::string_view::npos) {
             throw std::runtime_error("Invalid header format");
