@@ -127,10 +127,71 @@ TEST(iterHeaders, MultipleSameHeaders) {
 }
 
 TEST(findHostPort, Simple) {
+    std::string request;
+    // Тест 1: простой случай с хостом и портом
+    {
+        request = "GET / HTTP/1.1\r\n"
+                  "Host: example.com:8080\r\n"
+                  "User-Agent: test\r\n"
+                  "Connection: close\r\n"
+                  "\r\n";
+
+        const auto [host, port] = findHostPort(request);
+        EXPECT_EQ(host, "example.com");
+        EXPECT_EQ(port, "8080");
+    }
+
+    // Тест 2: случай только с хостом (без порта)
+    {
+        request = "GET / HTTP/1.1\r\n"
+                  "Host: example.com\r\n"
+                  "User-Agent: test\r\n"
+                  "Connection: close\r\n"
+                  "\r\n";
+
+        const auto [host, port] = findHostPort(request);
+        EXPECT_EQ(host, "example.com");
+        EXPECT_EQ(port, "80");  // порт по умолчанию
+    }
+
+    // Тест 3: случай с IP-адресом и портом
+    {
+        request = "GET / HTTP/1.1\r\n"
+                  "Host: 192.168.1.1:8000\r\n"
+                  "User-Agent: test\r\n"
+                  "Connection: close\r\n"
+                  "\r\n";
+
+        const auto [host, port] = findHostPort(request);
+        EXPECT_EQ(host, "192.168.1.1");
+        EXPECT_EQ(port, "8000");
+    }
+
+    // Тест 4: случай с поддоменом
+    {
+        request = "GET / HTTP/1.1\r\n"
+                  "Host: sub.example.com:443\r\n"
+                  "User-Agent: test\r\n"
+                  "Connection: close\r\n"
+                  "\r\n";
+
+        auto [host, port] = findHostPort(request);
+        EXPECT_EQ(host, "sub.example.com");
+        EXPECT_EQ(port, "443");
+    }
     // code here
 }
 
 TEST(findHostPort, NoHost) {
+    try {
+        const std::string_view invalid_request = "GET http://127.0.0.1:8000/ HTTP/1.1\r\n"  // Request line
+                                                 "User-Agent: Mozilla/5.0\r\n"
+                                                 "Accept: text/html\r\n\r\n";
+        findHostPort(invalid_request);
+        FAIL() << "Expected exception not thrown";
+    } catch (const std::runtime_error &e) {
+        EXPECT_STREQ("Missing Host header in HTTP request", e.what());
+    }
     // code here
 }
 

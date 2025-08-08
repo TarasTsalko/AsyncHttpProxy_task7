@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <ranges>
+#include <stdexcept>
 #include <string_view>
 
 using namespace std::string_view_literals;
@@ -43,7 +44,26 @@ void iterHeaders(std::string_view req, Callback &&callback) {
 }
 
 std::pair<std::string, std::string> findHostPort(std::string_view req) {
-    return {};
+    std::string host;
+    std::string port;
+
+    iterHeaders(req, [&](std::string_view name, std::string_view value) {
+        if (name == "Host") {
+            size_t colon_pos = value.find(':');
+            if (colon_pos != std::string_view::npos) {
+                host = std::string(value.substr(0, colon_pos));
+                port = std::string(value.substr(colon_pos + 1));
+            } else {
+                host = std::string(value);
+                port = "80";
+            }
+        }
+    });
+
+    if (host.empty())
+        throw std::runtime_error("Missing Host header in HTTP request");
+
+    return {host, port};
     // code here
 }
 
