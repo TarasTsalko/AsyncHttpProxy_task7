@@ -29,22 +29,17 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
     try {
         std::cout << "New session started" << std::endl;
 
-        // Буфер для чтения HTTP-запроса
-        boost::asio::streambuf sb;
+        // Используем dynamic_buffer вместо streambuf
+        std::string input_buffer;
 
         // Читаем HTTP-запрос до разделителя
         size_t bytes_transferred =
-            co_await boost::asio::async_read_until(client_socket, sb, delimiter, boost::asio::use_awaitable);
+            co_await async_read_until(client_socket, dynamic_buffer(input_buffer), delimiter, use_awaitable);
 
         assert(bytes_transferred > 0);
 
-        // Преобразуем буфер в строку
-        std::string request;
-        std::istream is(&sb);
-        std::getline(is, request);
-
         // Обрабатываем полученный запрос
-        std::cout << "Received request:\n" << request << std::endl;
+        std::cout << "Received request:\n" << input_buffer << std::endl;
 
         // Формируем ответ
         std::string response = "HTTP/1.1 200 OK\r\n"
@@ -53,7 +48,7 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
                                "Hello, client!\n";
 
         // Отправляем ответ
-        co_await boost::asio::async_write(client_socket, boost::asio::buffer(response), boost::asio::use_awaitable);
+        co_await async_write(client_socket, buffer(response), boost::asio::use_awaitable);
 
         // Закрываем сокет
         client_socket.close();
@@ -65,7 +60,7 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
 class Server {
 public:
     Server(io_service &io_service, short port)
-        : io_service_(io_service), acceptor_(io_service, tcp::endpoint(tcp::v4(), port)), socket_(io_service) {
+        : io_service_(io_service), acceptor_(io_service, tcp::endpoint(tcp::v4(), port)) {
         do_accept();
     }
 
@@ -73,10 +68,10 @@ private:
     void do_accept() {
         std::cout << "Waiting for connection..." << std::endl;
 
-        acceptor_.async_accept(socket_, [this](error_code ec) {
+        acceptor_.async_accept([this](error_code ec, tcp::socket socket) {
             if (!ec) {
                 // Запускаем новую корутину для обработки сессии
-                boost::asio::co_spawn(io_service_, session(std::move(socket_), io_service_), boost::asio::detached);
+                co_spawn(io_service_, session(std::move(socket), io_service_), boost::asio::detached);
             } else {
                 std::cerr << "Accept error: " << ec.message() << std::endl;
             }
@@ -87,7 +82,6 @@ private:
     }
     io_service &io_service_;
     tcp::acceptor acceptor_;
-    tcp::socket socket_;
 };
 
 int main(int argc, char *argv[]) {
