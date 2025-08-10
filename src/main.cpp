@@ -25,31 +25,71 @@ using boost::system::error_code;
 
 awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
     try {
-        std::cout << "New session started" << std::endl;
+        std::cout << "\nNew session started" << std::endl;
 
-        // Используем dynamic_buffer вместо streambuf
         std::string input_buffer;
-
         // Читаем HTTP-запрос до разделителя
-        size_t bytes_transferred =
+        const size_t bytes_transferred =
             co_await async_read_until(client_socket, dynamic_buffer(input_buffer), delimiter, use_awaitable);
 
-        assert(bytes_transferred > 0);
+        if (bytes_transferred <= 0) {
+            throw std::runtime_error("No bytes transferred during read operation");
+        }
 
-        // Обрабатываем полученный запрос
-        std::cout << "Received request:\n" << input_buffer << std::endl;
+        // Получаем Host и Port
+        const auto [host, port] = findHostPort(input_buffer);
+        if (host.empty()) {
+            throw std::runtime_error("Host header not found");
+        }
 
-        // Формируем ответ
-        std::string response = "HTTP/1.1 200 OK\r\n"
-                               "Content-Type: text/plain\r\n"
-                               "Connection: close\r\n\r\n"
-                               "Hello, client!\n";
+        // Устанавливаем соединение с сервером
+        tcp::resolver resolver(io_service);
+        auto endpoints = co_await resolver.async_resolve(host, port, use_awaitable);
 
-        // Отправляем ответ
-        co_await async_write(client_socket, buffer(response), boost::asio::use_awaitable);
+        tcp::socket server_socket(io_service);
+        co_await async_connect(server_socket, endpoints.begin(), use_awaitable);
 
-        // Закрываем сокет
-        client_socket.close();
+        // Пересылаем запрос на сервер
+        co_await async_write(server_socket, buffer(input_buffer), use_awaitable);
+
+        // Читаем заголовок ответа
+        std::string header_buffer;
+
+        // Читаем только заголовок
+        co_await async_read_until(server_socket, dynamic_buffer(header_buffer), delimiter, use_awaitable);
+
+        // Проверяем наличие разделителя
+        const size_t pos = header_buffer.find(delimiter);
+        if (pos == std::string::npos) {
+            throw std::runtime_error("Invalid response from server: delimiter not found");
+        }
+
+        std::string body_buffer = header_buffer.substr(pos + delimiter.size(), header_buffer.size());
+
+        // Получаем Content-Length
+        const auto content_length = findContentLength(header_buffer);
+
+        // Читаем тело ответа, если есть Content-Length
+        if (content_length.has_value()) {
+            body_buffer.reserve(content_length.value());
+            const size_t tail = content_length.value() - header_buffer.size() - pos - delimiter.size();
+            std::string tail_buffer;
+            tail_buffer.resize(content_length.value());
+            const size_t bytes_read =
+                co_await async_read(server_socket, buffer(tail_buffer), transfer_at_least(tail), use_awaitable);
+            if (bytes_read < tail) {
+                throw std::runtime_error("Read operation did not transfer expected number of bytes");
+            }
+            tail_buffer.resize(bytes_read);
+            body_buffer += tail_buffer;
+
+            // Отправляем заголовок клиенту
+            co_await async_write(client_socket, buffer(body_buffer), use_awaitable);
+
+            if (!client_socket.is_open()) {
+                throw std::runtime_error("Socket is not open");
+            }
+        }
     } catch (const std::exception &e) {
         std::cerr << "Session error: " << e.what() << std::endl;
     }
@@ -58,7 +98,8 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
 class Server {
 public:
     Server(io_service &io_service, short port)
-        : io_service_(io_service), acceptor_(io_service, tcp::endpoint(tcp::v4(), port)) {
+        : io_service_(io_service), acceptor_(io_service, tcp::endpoint(tcp::v4(), port)),
+          main_thread_id_(std::this_thread::get_id()) {
         do_accept();
     }
 
@@ -67,6 +108,9 @@ private:
         std::cout << "Waiting for connection..." << std::endl;
 
         acceptor_.async_accept([this](error_code ec, tcp::socket socket) {
+            if (std::this_thread::get_id() != main_thread_id_) {
+                throw std::runtime_error("Execution on different thread detected!");
+            }
             if (!ec) {
                 // Запускаем новую корутину для обработки сессии
                 co_spawn(io_service_, session(std::move(socket), io_service_), boost::asio::detached);
@@ -80,6 +124,7 @@ private:
     }
     io_service &io_service_;
     tcp::acceptor acceptor_;
+    std::thread::id main_thread_id_;
 };
 
 int main(int argc, char *argv[]) {

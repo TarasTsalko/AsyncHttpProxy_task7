@@ -38,7 +38,6 @@ TEST(iterHeaders, MissingRequestLineDelimiter) {
             iterHeaders(invalid_request, callback);
             FAIL() << "Expected exception not thrown";
         } catch (const std::runtime_error &e) {
-            std::cout << "e = " << e.what() << std::endl;
             EXPECT_STREQ("Invalid HTTP request: missing request line", e.what());
         }
     }
@@ -196,9 +195,40 @@ TEST(findHostPort, NoHost) {
 }
 
 TEST(findContentLength, Simple) {
+    std::string response;
+    // Тест 1: простой случай с корректным Content-Length
+    {
+        response = "GET / HTTP/1.1\r\n"
+                   "Host: example.com:8080\r\n"
+                   "Content-Type: text/html\r\n"
+                   "Content-Length: 1234\r\n"
+                   "\r\n"
+                   "<html>...</html>";
+
+        const auto result = findContentLength(response);
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result.value(), 1234);
+    }
+
+    // Тест 2: Content-Length с нулем
+    {
+        response = "GET / HTTP/1.1\r\n"
+                   "Host: example.com:8080\r\n"
+                   "Content-Length: 0\r\n"
+                   "\r\n";
+
+        const auto result = findContentLength(response);
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result.value(), 0);
+    }
     // code here
 }
 
 TEST(findContentLength, NoContentLength) {
+    const std::string response = "GET / HTTP/1.1\r\n"
+                                 "Host: example.com:8080\r\n"
+                                 "\r\n";
+    const auto result = findContentLength(response);
+    ASSERT_FALSE(result.has_value());
     // code here
 }

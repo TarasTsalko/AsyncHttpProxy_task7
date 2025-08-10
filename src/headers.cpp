@@ -21,7 +21,9 @@ void iterHeaders(std::string_view req, Callback &&callback) {
         throw std::runtime_error("Invalid HTTP request: missing request line");
     }
 
-    auto lines = req | std::views::split('\r') |
+    // Извлекаем только часть с заголовками
+    std::string_view headers_part = req.substr(0, end_headers);
+    auto lines = headers_part | std::views::split('\r') |
                  std::views::transform([](auto &&part) { return part | std::views::split('\n'); }) | std::views::join |
                  std::views::filter([](auto &&line) { return !line.empty(); }) | std::views::drop(1);
 
@@ -68,6 +70,25 @@ std::pair<std::string, std::string> findHostPort(std::string_view req) {
 }
 
 std::optional<size_t> findContentLength(std::string_view rsp) {
-    return std::nullopt;
+    std::optional<size_t> content_length;
+
+    iterHeaders(rsp, [&](std::string_view name, std::string_view value) {
+        if (name == "Content-Length") {
+            // Используем std::from_chars для безопасного преобразования
+            std::from_chars_result result;
+
+            // Создаем временную переменную для хранения результата
+            size_t number;
+            result = std::from_chars(value.data(), value.data() + value.size(), number);
+            // Проверяем успешность преобразования
+            if (result.ec == std::errc() && result.ptr == value.data() + value.size()) {
+                content_length = number;
+            } else {
+                content_length = std::nullopt;
+            }
+        }
+    });
+
+    return content_length;
     // code here
 }
