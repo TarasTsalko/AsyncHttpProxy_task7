@@ -7,7 +7,6 @@
 #include <boost/asio/read_until.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
-#include <cassert>
 #include <iostream>
 #include <print>
 #include <string_view>
@@ -45,6 +44,10 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
         // Устанавливаем соединение с сервером
         tcp::resolver resolver(io_service);
         auto endpoints = co_await resolver.async_resolve(host, port, use_awaitable);
+        // Добавляем проверку на пустой endpoints
+        if (endpoints.empty()) {
+            throw std::runtime_error("No endpoints found for host: " + host);
+        }
 
         tcp::socket server_socket(io_service);
         co_await async_connect(server_socket, endpoints.begin(), use_awaitable);
@@ -76,9 +79,8 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
 
         // Проверяем, есть ли данные в header_buffer после разделителя
         // так как не смотря на разделитель данные для оптимизации читаются пакетами
-        std::string body_buffer;
         const size_t current_body_size = header_buffer.size() - (pos + delimiter.size());
-        body_buffer = header_buffer.substr(pos + delimiter.size());
+        std::string body_buffer = header_buffer.substr(pos + delimiter.size());
 
         if (current_body_size < expected_body_size) {
             // Читаем оставшиеся данные
@@ -101,6 +103,9 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
         co_await async_write(client_socket, buffer(header_buffer), use_awaitable);
         co_await async_write(client_socket, buffer(body_buffer), use_awaitable);
 
+        // по заданию у сокитов нужно вызвать close, но ка я читал
+        // close вызывается в деструкторе, уточнить у ревьювера
+
     } catch (const std::exception &e) {
         throw std::runtime_error(std::format("Session error: {}", e.what()));
     }
@@ -109,48 +114,51 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
 class Server {
 public:
     Server(io_service &io_service, short port)
-        : io_service_(io_service), acceptor_(io_service, tcp::endpoint(tcp::v4(), port)),
-          main_thread_id_(std::this_thread::get_id()) {
+        : io_service_(io_service), acceptor_(io_service, tcp::endpoint(tcp::v4(), port)) {
         do_accept();
     }
 
 private:
     void do_accept() {
         std::println("Waiting for connection...");
-        acceptor_.async_accept([this](error_code ec, tcp::socket socket) {
-            if (std::this_thread::get_id() != main_thread_id_) {
-                throw std::runtime_error("Execution on different thread detected!");
-            }
-            std::exception_ptr exception_ptr;
-            if (!ec) {
-                // Используем std::move для корректной передачи сокета
-                co_spawn(
-                    io_service_,
-                    [this, &exception_ptr, &socket]() -> awaitable<void> {
-                        try {
-                            // Передаем перемещенный сокет в session
-                            co_await session(std::move(socket), io_service_);
-                        } catch (const std::exception &e) {
-                            std::cerr << "Session error: " << e.what() << std::endl;
-                            exception_ptr = std::current_exception();
-                        }
-                    },
-                    boost::asio::detached);
-            } else {
-                std::cerr << "Accept error: " << ec.message() << std::endl;
-            }
 
-            // Проверка на наличие исключения
-            if (exception_ptr)
-                return;
-            // Продолжаем принимать новые подключения
-            do_accept();
+        acceptor_.async_accept([this](error_code ec, tcp::socket socket) {
+            try {
+                if (!ec) {
+                    co_spawn(
+                        io_service_,
+                        [this, &socket]() -> awaitable<void> {
+                            try {
+                                if (is_running_)
+                                    co_await session(std::move(socket), io_service_);
+                            } catch (const std::exception &e) {
+                                std::cerr << e.what() << std::endl;
+                                is_running_ = false;
+                            }
+                        },
+                        boost::asio::detached);
+                } else {
+                    std::cerr << "Accept error: " << ec.message() << std::endl;
+                }
+
+                // Проверка на наличие исключения
+                if (!is_running_) {
+                    return;
+                }
+
+                // Продолжаем принимать новые подключения
+                do_accept();
+            } catch (const std::exception &e) {
+                std::cerr << "Exception: " << e.what() << std::endl;
+                is_running_ = false;
+            }
         });
     }
 
     io_service &io_service_;
     tcp::acceptor acceptor_;
-    std::thread::id main_thread_id_;
+    // может нужен atomic, уточнить у ревьювера
+    bool is_running_ = true;
 };
 
 int main(int argc, char *argv[]) {
