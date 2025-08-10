@@ -64,32 +64,43 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
             throw std::runtime_error("Invalid response from server: delimiter not found");
         }
 
-        std::string body_buffer = header_buffer.substr(pos + delimiter.size(), header_buffer.size());
-
         // Получаем Content-Length
         const auto content_length = findContentLength(header_buffer);
 
-        // Читаем тело ответа, если есть Content-Length
-        if (content_length.has_value()) {
-            body_buffer.reserve(content_length.value());
-            const size_t tail = content_length.value() - header_buffer.size() - pos - delimiter.size();
-            std::string tail_buffer;
-            tail_buffer.resize(content_length.value());
+        if (!content_length.has_value()) {
+            throw std::runtime_error("Content-Length header is missing in response");
+        }
+
+        // Вычисляем ожидаемый размер тела
+        const size_t expected_body_size = content_length.value() - (pos + delimiter.size());
+
+        // Проверяем, есть ли данные в header_buffer после разделителя
+        // так как не смотря на разделитель данные для оптимизации читаются пакетами
+        std::string body_buffer;
+        const size_t current_body_size = header_buffer.size() - (pos + delimiter.size());
+        body_buffer = header_buffer.substr(pos + delimiter.size());
+
+        if (current_body_size < expected_body_size) {
+            // Читаем оставшиеся данные
+            std::string remaining_buffer;
+            remaining_buffer.resize(expected_body_size - current_body_size);
+
             const size_t bytes_read =
-                co_await async_read(server_socket, buffer(tail_buffer), transfer_at_least(tail), use_awaitable);
-            if (bytes_read < tail) {
+                co_await async_read(server_socket, buffer(remaining_buffer),
+                                    transfer_at_least(expected_body_size - current_body_size), use_awaitable);
+
+            if (bytes_read < (expected_body_size - current_body_size)) {
                 throw std::runtime_error("Read operation did not transfer expected number of bytes");
             }
-            tail_buffer.resize(bytes_read);
-            body_buffer += tail_buffer;
 
-            // Отправляем заголовок клиенту
-            co_await async_write(client_socket, buffer(body_buffer), use_awaitable);
-
-            if (!client_socket.is_open()) {
-                throw std::runtime_error("Socket is not open");
-            }
+            remaining_buffer.resize(bytes_read);
+            body_buffer += remaining_buffer;
         }
+
+        // Отправляем заголовок и тело клиенту
+        co_await async_write(client_socket, buffer(header_buffer), use_awaitable);
+        co_await async_write(client_socket, buffer(body_buffer), use_awaitable);
+
     } catch (const std::exception &e) {
         std::cerr << "Session error: " << e.what() << std::endl;
     }
