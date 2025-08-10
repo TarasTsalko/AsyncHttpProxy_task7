@@ -25,7 +25,7 @@ using boost::system::error_code;
 
 awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
     try {
-        std::cout << "\nNew session started" << std::endl;
+        std::println("\nNew session started");
 
         std::string input_buffer;
         // Читаем HTTP-запрос до разделителя
@@ -102,7 +102,7 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
         co_await async_write(client_socket, buffer(body_buffer), use_awaitable);
 
     } catch (const std::exception &e) {
-        std::cerr << "Session error: " << e.what() << std::endl;
+        throw std::runtime_error(std::format("Session error: {}", e.what()));
     }
 }
 
@@ -116,23 +116,38 @@ public:
 
 private:
     void do_accept() {
-        std::cout << "Waiting for connection..." << std::endl;
-
+        std::println("Waiting for connection...");
         acceptor_.async_accept([this](error_code ec, tcp::socket socket) {
             if (std::this_thread::get_id() != main_thread_id_) {
                 throw std::runtime_error("Execution on different thread detected!");
             }
+            std::exception_ptr exception_ptr;
             if (!ec) {
-                // Запускаем новую корутину для обработки сессии
-                co_spawn(io_service_, session(std::move(socket), io_service_), boost::asio::detached);
+                // Используем std::move для корректной передачи сокета
+                co_spawn(
+                    io_service_,
+                    [this, &exception_ptr, &socket]() -> awaitable<void> {
+                        try {
+                            // Передаем перемещенный сокет в session
+                            co_await session(std::move(socket), io_service_);
+                        } catch (const std::exception &e) {
+                            std::cerr << "Session error: " << e.what() << std::endl;
+                            exception_ptr = std::current_exception();
+                        }
+                    },
+                    boost::asio::detached);
             } else {
                 std::cerr << "Accept error: " << ec.message() << std::endl;
             }
 
+            // Проверка на наличие исключения
+            if (exception_ptr)
+                return;
             // Продолжаем принимать новые подключения
             do_accept();
         });
     }
+
     io_service &io_service_;
     tcp::acceptor acceptor_;
     std::thread::id main_thread_id_;
