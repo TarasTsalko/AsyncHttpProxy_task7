@@ -99,8 +99,7 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
             body_buffer += remaining_buffer;
         }
 
-        // Отправляем заголовок и тело клиенту
-        co_await async_write(client_socket, buffer(header_buffer), use_awaitable);
+        // Отправляем тело клиенту
         co_await async_write(client_socket, buffer(body_buffer), use_awaitable);
 
         // по заданию у сокитов нужно вызвать close, но ка я читал
