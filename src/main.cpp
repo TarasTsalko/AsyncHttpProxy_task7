@@ -160,15 +160,30 @@ private:
     bool is_running_ = true;
 };
 
+bool isValidPort(short port) {
+    // Порт должен быть в диапазоне 1-65535
+    return port >= 1 && port <= 65535;
+}
+
 int main(int argc, char *argv[]) {
     try {
-        if (argc != 2) {
+        if (argc < 2) {
             std::cerr << "Usage: proxy_server";
             std::cerr << " <listen_port>\n";
             return 1;
         }
+
+        const std::string_view value(argv[1]);
+        short number;
+        const std::from_chars_result result = std::from_chars(value.data(), value.data() + value.size(), number);
+        if (result.ec != std::errc() || result.ptr != value.data() + value.size() || !isValidPort(number)) {
+            std::cerr << "Error: invalid port number. Port must be an integer between 1 and 65535\n";
+            std::cerr << "Invalid input: '" << value << "'\n";
+            return 2;
+        }
+
         io_service io_service(1);
-        Server server(io_service, std::atoi(argv[1]));
+        Server server(io_service, number);
         io_service.run();
 
     } catch (const std::exception &e) {
