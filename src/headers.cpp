@@ -45,7 +45,7 @@ void iterHeaders(std::string_view req, Callback &&callback) {
     // code here
 }
 
-std::pair<std::string, std::string> findHostPort(std::string_view req) {
+HostPort parseHostWithPort(std::string_view req) {
     std::string host;
     std::string port;
 
@@ -65,7 +65,7 @@ std::pair<std::string, std::string> findHostPort(std::string_view req) {
     if (host.empty())
         throw std::runtime_error("Missing Host header in HTTP request");
 
-    return {host, port};
+    return {std::move(host), std::move(port)};
     // code here
 }
 

@@ -36,7 +36,7 @@ awaitable<void> session(tcp::socket client_socket, io_service &io_service) {
         }
 
         // Получаем Host и Port
-        const auto [host, port] = findHostPort(input_buffer);
+        const auto [host, port] = parseHostWithPort(input_buffer);
         if (host.empty()) {
             throw std::runtime_error("Host header not found");
         }

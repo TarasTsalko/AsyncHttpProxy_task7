@@ -135,7 +135,7 @@ TEST(findHostPort, Simple) {
                   "Connection: close\r\n"
                   "\r\n";
 
-        const auto [host, port] = findHostPort(request);
+        const auto [host, port] = parseHostWithPort(request);
         EXPECT_EQ(host, "example.com");
         EXPECT_EQ(port, "8080");
     }
@@ -148,7 +148,7 @@ TEST(findHostPort, Simple) {
                   "Connection: close\r\n"
                   "\r\n";
 
-        const auto [host, port] = findHostPort(request);
+        const auto [host, port] = parseHostWithPort(request);
         EXPECT_EQ(host, "example.com");
         EXPECT_EQ(port, "80");  // порт по умолчанию
     }
@@ -161,7 +161,7 @@ TEST(findHostPort, Simple) {
                   "Connection: close\r\n"
                   "\r\n";
 
-        const auto [host, port] = findHostPort(request);
+        const auto [host, port] = parseHostWithPort(request);
         EXPECT_EQ(host, "192.168.1.1");
         EXPECT_EQ(port, "8000");
     }
@@ -174,7 +174,7 @@ TEST(findHostPort, Simple) {
                   "Connection: close\r\n"
                   "\r\n";
 
-        auto [host, port] = findHostPort(request);
+        auto [host, port] = parseHostWithPort(request);
         EXPECT_EQ(host, "sub.example.com");
         EXPECT_EQ(port, "443");
     }
@@ -186,7 +186,7 @@ TEST(findHostPort, NoHost) {
         const std::string_view invalid_request = "GET http://127.0.0.1:8000/ HTTP/1.1\r\n"  // Request line
                                                  "User-Agent: Mozilla/5.0\r\n"
                                                  "Accept: text/html\r\n\r\n";
-        findHostPort(invalid_request);
+        parseHostWithPort(invalid_request);
         FAIL() << "Expected exception not thrown";
     } catch (const std::runtime_error &e) {
         EXPECT_STREQ("Missing Host header in HTTP request", e.what());
