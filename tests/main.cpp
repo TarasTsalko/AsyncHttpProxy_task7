@@ -1,15 +1,18 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>  // system
+#include <string>
 
-void stop_process(const std::string &process_name) {
-    std::string command = "ps aux | grep \"" + process_name + "\" | grep -v grep | awk '{print $2}' | xargs kill -9";
+// нелбходимо завершить процесс AsyncHttpProxy после всех тестов, чтобы освободился порт для следуюшего запуска
+void stop_process(std::string_view process_name) {
+    const std::string command =
+        std::format("ps aux | grep \"{}\" | grep -v grep | awk '{{print $2}}' | xargs kill -9", process_name);
     system(command.c_str());
 }
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    auto ret = RUN_ALL_TESTS();
+    const int ret = RUN_ALL_TESTS();
     stop_process("AsyncHttpProxy");
     return ret;
 }
