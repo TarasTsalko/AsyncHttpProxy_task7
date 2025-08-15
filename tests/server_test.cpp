@@ -9,11 +9,9 @@
 #include <string>
 #include <thread>
 
-// Функция для запуска процесса через систему
 bool run_process(std::string_view command) { return system(command.data()) == 0; }
 
-std::string readFromPipe(std::string_view command) {
-    // Создаем пайпы для stdout и stderr
+std::string read_from_pipe(std::string_view command) {
     FILE *pipeOut = popen(command.data(), "r");
 
     if (!pipeOut) {
@@ -61,7 +59,7 @@ TEST(AsyncHttpProxyTest, BasicFunctionalityTest) {
     std::string curl_command =
         std::format("curl -s -x http://127.0.0.1:{} http://127.0.0.1:{}", proxy_port, target_port);
 
-    std::string response = readFromPipe(curl_command);
+    std::string response = read_from_pipe(curl_command);
     // Проверяем, что получили ожидаемый ответ
     EXPECT_EQ(response.size(), 8192);
     EXPECT_EQ(std::ranges::count(response, 'B'), 8192);
@@ -72,7 +70,7 @@ TEST(AsyncHttpProxyTest, BasicFunctionalityTest) {
                     target_port);
     ASSERT_TRUE(run_process(server_command));
 
-    response = readFromPipe(curl_command);
+    response = read_from_pipe(curl_command);
     // Проверяем, что получили ожидаемый ответ
     EXPECT_EQ(response.size(), 4096);
     EXPECT_EQ(std::ranges::count(response, 'C'), 4096);
@@ -80,10 +78,9 @@ TEST(AsyncHttpProxyTest, BasicFunctionalityTest) {
 
 TEST(AsyncHttpProxyTest, ZeroPortTest) {
     const std::string invalid_port = "0";
+    // Читаем из stderr
     const std::string command = std::format("./AsyncHttpProxy {} 2>&1 >/dev/null", invalid_port);
-
-    // Читаем из stderr, передавая true как второй параметр
-    const std::string error = readFromPipe(command);
+    const std::string error = read_from_pipe(command);
 
     const std::string expected_error =
         std::format("Error: invalid port number. Port must be an integer between 1 and 65535\n"

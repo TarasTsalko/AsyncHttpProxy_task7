@@ -74,10 +74,8 @@ std::optional<size_t> findContentLength(std::string_view rsp) {
 
     iterHeaders(rsp, [&](std::string_view name, std::string_view value) {
         if (name == "Content-Length") {
-            // Используем std::from_chars для безопасного преобразования
             std::from_chars_result result;
 
-            // Создаем временную переменную для хранения результата
             size_t number;
             result = std::from_chars(value.data(), value.data() + value.size(), number);
             // Проверяем успешность преобразования
